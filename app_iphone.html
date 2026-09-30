@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="zh-TW" class="h-full bg-slate-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>學生學科成績點數統計 App</title>
+    
+    <!-- iOS Web App Meta Tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="學科點數">
+    <meta name="theme-color" content="#f8fafc">
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        ios: {
+                            blue: '#007AFF',
+                            green: '#34C759',
+                            red: '#FF3B30',
+                            orange: '#FF9500',
+                            bg: '#F2F2F7',
+                            card: '#FFFFFF',
+                            border: '#E5E5EA'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['-apple-system', 'BlinkMacSystemFont', 'SF Pro Text', 'SF Pro Display', 'PingFang TC', 'Microsoft JhengHei', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Alpine.js -->
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        /* iOS Smooth Scrolling & Safe Area adjustments */
+        body {
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
+            user-select: none;
+        }
+        input, textarea, select {
+            user-select: text;
+        }
+        .pb-safe {
+            padding-bottom: env(safe-area-inset-bottom, 20px);
+        }
+        .pt-safe {
+            padding-top: env(safe-area-inset-top, 20px);
+        }
+        /* Custom scrollbar hide for mobile UX */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="h-full font-sans antialiased text-slate-800 bg-slate-100 flex flex-col justify-between selection:bg-blue-100" x-data="appData()" x-init="init()">
+
+    <!-- iOS Blur Top Header -->
+    <header class="sticky top-0 z-30 pt-safe bg-white/80 backdrop-blur-md border-b border-slate-200/80 px-4 py-3 flex items-center justify-between shadow-sm">
+        <div class="flex items-center gap-2">
+            <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white font-bold text-sm shadow-md shadow-blue-500/20">
+                <i data-lucide="award" class="w-4 h-4"></i>
+            </div>
+            <div>
+                <h1 class="text-base font-bold text-slate-900 leading-tight">學科點數統計</h1>
+                <p class="text-[10px] font-medium text-slate-400" x-text="'台北時間 · ' + currentMonthText + ' 第' + form.weekNum + '週'"></p>
+            </div>
+        </div>
+
+        <!-- Sync Indicator Pill -->
+        <button @click="activeTab = 'settings'" class="px-2.5 py-1 rounded-full text-[11px] font-semibold flex items-center gap-1.5 transition-all active:scale-95 border"
+            :class="webhookUrl ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-amber-50 text-amber-600 border-amber-200'">
+            <span class="w-2 h-2 rounded-full" :class="webhookUrl ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'"></span>
+            <span x-text="webhookUrl ? '雲端同步中' : '設定試算表'"></span>
+        </button>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 overflow-y-auto no-scrollbar px-4 py-3 pb-32">
+
+        <!-- TAB 1: 點數登錄 (iOS Entry View) -->
+        <div x-show="activeTab === 'entry'" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 translate-y-2" x-transition:enter-end="opacity-100 translate-y-0" class="space-y-3">
+            <form @submit.prevent="submitEntry()" class="space-y-3.5">
+                
+                <!-- 學生與時間選擇區 (Card) -->
+                <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/60 space-y-3">
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                        <span class="text-xs font-bold tracking-wide uppercase text-slate-400">基本資料</span>
+                        <button type="button" @click="showStudentModal = true" class="text-xs text-blue-600 font-semibold hover:underline flex items-center gap-1">
+                            <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>管理學生名單
+                        </button>
+                    </div>
+
+                    <!-- 學生選擇下拉選單 -->
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">選擇學生</label>
+                        <select x-model="form.studentId" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
+                            <template x-for="stu in students" :key="stu.id">
+                                <option :value="stu.id" x-text="stu.classNum + ' 號 - ' + stu.name"></option>
+                            </template>
+                        </select>
+                    </div>
+
+                    <!-- 台北時間與週別 -->
+                    <div class="grid grid-cols-2 gap-2.5">
+                        <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                            <div class="text-[10px] text-slate-400 font-semibold mb-0.5">月份 (台北時間)</div>
+                            <input type="month" x-model="form.yearMonth" class="w-full bg-transparent font-bold text-slate-800 text-xs focus:outline-none">
+                        </div>
+                        <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                            <div class="text-[10px] text-slate-400 font-semibold mb-0.5">計算週別</div>
+                            <select x-model="form.weekNum" class="w-full bg-transparent font-bold text-slate-800 text-xs focus:outline-none">
+                                <option value="1">第 1 週 (Week 1)</option>
+                                <option value="2">第 2 週 (Week 2)</option>
+                                <option value="3">第 3 週 (Week 3)</option>
+                                <option value="4">第 4 週 (Week 4)</option>
+                                <option value="5">第 5 週 (Week 5)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 考卷數量輸入 (iOS Stepper Controls) -->
+                <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/60 space-y-3.5">
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                        <span class="text-xs font-bold tracking-wide uppercase text-slate-400">成績考卷輸入</span>
+                        <span class="text-[11px] text-slate-400">測驗不限制份數</span>
+                    </div>
+
+                    <!-- 60-79 分卡片 -->
+                    <div class="flex items-center justify-between bg-amber-50/50 p-3 rounded-xl border border-amber-100">
+                        <div>
+                            <div class="text-xs font-bold text-amber-900">60 ~ 79 分</div>
+                            <div class="text-[10px] text-amber-600 font-medium">每滿 3 份可 +2 點</div>
+                        </div>
+                        <!-- iOS Stepper -->
+                        <div class="flex items-center bg-white border border-amber-200 rounded-xl overflow-hidden shadow-sm">
+                            <button type="button" @click="form.c6079 = Math.max(0, form.c6079 - 1)" class="w-9 h-9 flex items-center justify-center text-slate-600 font-bold active:bg-slate-100 text-base">-</button>
+                            <input type="number" min="0" x-model.number="form.c6079" class="w-10 text-center font-bold text-slate-800 text-sm focus:outline-none">
+                            <button type="button" @click="form.c6079++" class="w-9 h-9 flex items-center justify-center text-slate-600 font-bold active:bg-slate-100 text-base">+</button>
+                        </div>
+                    </div>
+
+                    <!-- 80-89 分卡片 -->
+                    <div class="flex items-center justify-between bg-blue-50/50 p-3 rounded-xl border border-blue-100">
+                        <div>
+                            <div class="text-xs font-bold text-blue-900">80 ~ 89 分</div>
+                            <div class="text-[10px] text-blue-600 font-medium">每滿 2 份可 +2 點</div>
+                        </div>
+                        <!-- iOS Stepper -->
+                        <div class="flex items-center bg-white border border-blue-200 rounded-xl overflow-hidden shadow-sm">
+                            <button type="button" @click="form.c8089 = Math.max(0, form.c8089 - 1)" class="w-9 h-9 flex items-center justify-center text-slate-600 font-bold active:bg-slate-100 text-base">-</button>
+                            <input type="number" min="0" x-model.number="form.c8089" class="w-10 text-center font-bold text-slate-800 text-sm focus:outline-none">
+                            <button type="button" @click="form.c8089++" class="w-9 h-9 flex items-center justify-center text-slate-600 font-bold active:bg-slate-100 text-base">+</button>
+                        </div>
+                    </div>
+
+                    <!-- 90-100 分卡片 -->
+                    <div class="flex items-center justify-between bg-emerald-50/50 p-3 rounded-xl border border-emerald-100">
+                        <div>
+                            <div class="text-xs font-bold text-emerald-900">90 ~ 100 分</div>
+                            <div class="text-[10px] text-emerald-600 font-medium">每 1 份可 +2 點</div>
+                        </div>
+                        <!-- iOS Stepper -->
+                        <div class="flex items-center bg-white border border-emerald-200 rounded-xl overflow-hidden shadow-sm">
+                            <button type="button" @click="form.c90100 = Math.max(0, form.c90100 - 1)" class="w-9 h-9 flex items-center justify-center text-slate-600 font-bold active:bg-slate-100 text-base">-</button>
+                            <input type="number" min="0" x-model.number="form.c90100" class="w-10 text-center font-bold text-slate-800 text-sm focus:outline-none">
+                            <button type="button" @click="form.c90100++" class="w-9 h-9 flex items-center justify-center text-slate-600 font-bold active:bg-slate-100 text-base">+</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 當周良好表現加分卡片 (iOS Toggle) -->
+                <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/60 flex items-center justify-between">
+                    <div class="space-y-0.5 max-w-[75%]">
+                        <div class="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                            <i data-lucide="shield-check" class="w-4 h-4 text-emerald-500"></i>
+                            當周無違規 / 投訴 / 不合格
+                        </div>
+                        <div class="text-[10px] text-slate-400">獎勵加 +5 點 (每週限領 1 次)</div>
+                        <template x-if="isBonusAlreadyClaimedThisWeek">
+                            <div class="text-[10px] text-amber-600 font-semibold">⚠️ 該學生本週已領取過無違規獎勵</div>
+                        </template>
+                    </div>
+
+                    <!-- iOS Switch -->
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" x-model="form.weeklyBonus" :disabled="isBonusAlreadyClaimedThisWeek" class="sr-only peer">
+                        <div class="w-12 h-7 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-emerald-500 peer-disabled:opacity-40"></div>
+                    </label>
+                </div>
+
+                <!-- 照片證明上傳區 -->
+                <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/60 space-y-3">
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                        <span class="text-xs font-bold tracking-wide uppercase text-slate-400">考卷/證明拍照 (選填)</span>
+                        <span class="text-[11px] text-slate-400" x-text="form.proofImages.length + ' 張附件'"></span>
+                    </div>
+
+                    <div class="grid grid-cols-4 gap-2">
+                        <template x-for="(img, idx) in form.proofImages" :key="idx">
+                            <div class="relative group aspect-square rounded-xl overflow-hidden border border-slate-200 shadow-inner">
+                                <img :src="img" class="w-full h-full object-cover" @click="viewImageModal = img">
+                                <button type="button" @click="form.proofImages.splice(idx, 1)" class="absolute top-1 right-1 bg-black/60 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs">✕</button>
+                            </div>
+                        </template>
+
+                        <label class="aspect-square rounded-xl border-2 border-dashed border-slate-200 hover:border-blue-400 bg-slate-50 flex flex-col items-center justify-center text-slate-400 cursor-pointer active:scale-95 transition-all">
+                            <i data-lucide="camera" class="w-5 h-5 mb-0.5"></i>
+                            <span class="text-[10px] font-medium">拍照/上傳</span>
+                            <input type="file" accept="image/*" capture="environment" @change="handleFileUpload" class="hidden">
+                        </label>
+                    </div>
+                </div>
+
+                <!-- 點數試算卡片 -->
+                <div class="bg-gradient-to-br from-blue-600 to-indigo-700 text-white rounded-2xl p-4 shadow-lg shadow-blue-500/20 flex items-center justify-between">
+                    <div>
+                        <div class="text-xs font-medium text-blue-100">本次計算加分試算</div>
+                        <div class="text-2xl font-black mt-0.5" x-text="calculatedPoints.totalPoints + ' 點'"></div>
+                        <div class="text-[10px] text-blue-200 mt-1" x-text="'考卷點數 ' + calculatedPoints.paperPts + ' 點 + 週獎勵 ' + calculatedPoints.bonusPts + ' 點'"></div>
+                    </div>
+                    <button type="submit" class="bg-white text-blue-600 px-5 py-2.5 rounded-xl text-xs font-bold active:scale-95 transition-all shadow-sm flex items-center gap-1.5">
+                        <i data-lucide="check-circle" class="w-4 h-4"></i>確認儲存
+                    </button>
+                </div>
+
+            </form>
+        </div>
+
+        <!-- TAB 2: 班級統計 Dashboard -->
+        <div x-show="activeTab === 'dashboard'" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 translate-y-2" x-transition:enter-end="opacity-100 translate-y-0" class="space-y-3.5">
+            
+            <!-- 月份選擇與統計總覽 -->
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/60 space-y-3">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-slate-900">月度班級狀況</span>
+                    <input type="month" x-model="form.yearMonth" class="bg-slate-100 text-xs font-bold px-2.5 py-1.5 rounded-lg border-0 text-slate-700 focus:outline-none">
+                </div>
+
+                <!-- KPI 卡片網格 -->
+                <div class="grid grid-cols-2 gap-2.5">
+                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                        <div class="text-[10px] font-medium text-slate-400">本月發放總點數</div>
+                        <div class="text-xl font-black text-blue-600 mt-0.5" x-text="monthlyStats.totalClassPoints + ' 點'"></div>
+                    </div>
+                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                        <div class="text-[10px] font-medium text-slate-400">累計登記考卷總數</div>
+                        <div class="text-xl font-black text-slate-800 mt-0.5" x-text="monthlyStats.totalPapers + ' 份'"></div>
+                    </div>
+                </div>
+
+                <!-- 考卷成績區間比例條 -->
+                <div class="space-y-1.5 pt-1">
+                    <div class="flex justify-between text-[11px] font-semibold text-slate-600">
+                        <span>考卷成績區間分佈</span>
+                        <span x-text="'共 ' + monthlyStats.totalPapers + ' 份'"></span>
+                    </div>
+                    <div class="h-3 w-full bg-slate-100 rounded-full overflow-hidden flex">
+                        <div class="bg-amber-400 h-full transition-all" :style="'width: ' + monthlyStats.p6079Pct + '%'" :title="'60-79分: ' + monthlyStats.c6079 + '份'"></div>
+                        <div class="bg-blue-500 h-full transition-all" :style="'width: ' + monthlyStats.p8089Pct + '%'" :title="'80-89分: ' + monthlyStats.c8089 + '份'"></div>
+                        <div class="bg-emerald-500 h-full transition-all" :style="'width: ' + monthlyStats.p90100Pct + '%'" :title="'90-100分: ' + monthlyStats.c90100 + '份'"></div>
+                    </div>
+                    <div class="flex items-center justify-between text-[10px] text-slate-500 pt-0.5">
+                        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-amber-400"></span>60-79分 (<span x-text="monthlyStats.c6079"></span>)</span>
+                        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-blue-500"></span>80-89分 (<span x-text="monthlyStats.c8089"></span>)</span>
+                        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-500"></span>90-100分 (<span x-text="monthlyStats.c90100"></span>)</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 學生積分排行榜 -->
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/60 space-y-3">
+                <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                    <span class="text-xs font-bold text-slate-900 flex items-center gap-1">
+                        <i data-lucide="trophy" class="w-4 h-4 text-amber-500"></i> 當月點數排行榜
+                    </span>
+                    <span class="text-[10px] text-slate-400">按累積總點數排序</span>
+                </div>
+
+                <div class="space-y-2">
+                    <template x-for="(stu, idx) in sortedStudentRankings" :key="stu.id">
+                        <div class="flex items-center justify-between p-2.5 rounded-xl border border-slate-100 bg-slate-50/60">
+                            <div class="flex items-center gap-2.5">
+                                <span class="w-6 h-6 rounded-full flex items-center justify-center font-black text-xs"
+                                    :class="idx === 0 ? 'bg-amber-400 text-white' : idx === 1 ? 'bg-slate-300 text-slate-700' : idx === 2 ? 'bg-amber-700 text-white' : 'text-slate-400'"
+                                    x-text="idx + 1"></span>
+                                <div>
+                                    <div class="text-xs font-bold text-slate-800" x-text="stu.classNum + ' 號 - ' + stu.name"></div>
+                                    <div class="text-[10px] text-slate-400" x-text="'登錄 ' + stu.submissionCount + ' 次'"></div>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <span class="text-sm font-black text-blue-600" x-text="stu.monthlyPoints + ' 點'"></span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- TAB 3: 歷史紀錄 View -->
+        <div x-show="activeTab === 'history'" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 translate-y-2" x-transition:enter-end="opacity-100 translate-y-0" class="space-y-3">
+            <div class="flex items-center justify-between px-1">
+                <span class="text-xs font-bold text-slate-700" x-text="'共 ' + filteredRecords.length + ' 筆點數紀錄'"></span>
+                <button @click="exportCSV()" class="text-xs text-blue-600 font-semibold hover:underline flex items-center gap-1">
+                    <i data-lucide="download" class="w-3.5 h-3.5"></i>匯出 CSV
+                </button>
+            </div>
+
+            <!-- 紀錄清單 -->
+            <div class="space-y-2.5">
+                <template x-for="rec in filteredRecords" :key="rec.id">
+                    <div class="bg-white rounded-2xl p-3.5 shadow-sm border border-slate-200/60 space-y-2">
+                        <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                            <div>
+                                <span class="text-xs font-bold text-slate-900" x-text="getStudentName(rec.studentId)"></span>
+                                <span class="text-[10px] text-slate-400 ml-1.5" x-text="rec.yearMonth + ' 第' + rec.weekNum + '週'"></span>
+                            </div>
+                            <span class="text-xs font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-lg" x-text="'+' + rec.totalPoints + ' 點'"></span>
+                        </div>
+
+                        <div class="grid grid-cols-3 gap-1 text-[10px] text-slate-500">
+                            <div>60-79分: <b class="text-slate-800" x-text="rec.c6079"></b> 份</div>
+                            <div>80-89分: <b class="text-slate-800" x-text="rec.c8089"></b> 份</div>
+                            <div>90-100分: <b class="text-slate-800" x-text="rec.c90100"></b> 份</div>
+                        </div>
+
+                        <div class="flex items-center justify-between pt-1 border-t border-slate-100 text-[10px]">
+                            <span class="text-slate-400" x-text="rec.createdAt"></span>
+                            <div class="flex items-center gap-2">
+                                <template x-if="rec.proofImages && rec.proofImages.length > 0">
+                                    <button @click="viewImageModal = rec.proofImages[0]" class="text-blue-600 font-bold hover:underline">查看證明照片</button>
+                                </template>
+                                <button @click="deleteRecord(rec.id)" class="text-red-500 hover:text-red-700">刪除</button>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <!-- TAB 4: 雲端設定 & 學生管理 View -->
+        <div x-show="activeTab === 'settings'" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 translate-y-2" x-transition:enter-end="opacity-100 translate-y-0" class="space-y-3.5">
+            
+            <!-- 學生名單管理 -->
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/60 space-y-3">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="users" class="w-5 h-5 text-blue-600"></i>
+                        <h3 class="text-xs font-bold text-slate-800">學生名單管理</h3>
+                    </div>
+                    <span class="text-xs text-slate-400" x-text="students.length + ' 位學生'"></span>
+                </div>
+                <button @click="showStudentModal = true" class="w-full bg-blue-50 text-blue-600 font-bold py-2.5 rounded-xl text-xs active:scale-95 transition-all flex items-center justify-center gap-1">
+                    <i data-lucide="user-plus" class="w-4 h-4"></i> 新增 / 刪除學生名單
+                </button>
+            </div>
+
+            <!-- Google Sheet Webhook 綁定設定 -->
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/60 space-y-3">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="sheet" class="w-5 h-5 text-emerald-600"></i>
+                    <h3 class="text-xs font-bold text-slate-800">Google 試算表 Webhook 連結</h3>
+                </div>
+
+                <div class="space-y-2">
+                    <input type="url" x-model="webhookUrl" placeholder="https://script.google.com/macros/s/.../exec" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <button @click="saveSettings()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs active:scale-95 transition-all shadow-sm">
+                        儲存 Webhook 連結
+                    </button>
+                </div>
+
+                <div class="pt-2 border-t border-slate-100">
+                    <button @click="copyScriptCode()" class="text-xs text-blue-600 font-semibold hover:underline flex items-center gap-1">
+                        <i data-lucide="code" class="w-3.5 h-3.5"></i>複製 Google Apps Script 程式碼
+                    </button>
+                </div>
+            </div>
+
+            <!-- 清除本機快取 -->
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/60">
+                <button @click="clearAllData()" class="w-full bg-red-50 text-red-600 font-bold py-2.5 rounded-xl text-xs active:scale-95 transition-all">
+                    清除所有本地紀錄
+                </button>
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- iOS Floating Bottom Tab Bar -->
+    <nav class="fixed bottom-0 left-0 right-0 z-40 bg-white/85 backdrop-blur-md border-t border-slate-200/80 px-4 py-2 pb-safe flex items-center justify-around shadow-lg">
+        <button @click="activeTab = 'entry'" class="flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all" :class="activeTab === 'entry' ? 'text-blue-600 font-bold' : 'text-slate-400 font-medium'">
+            <i data-lucide="plus-circle" class="w-5 h-5"></i>
+            <span class="text-[10px]">點數登錄</span>
+        </button>
+
+        <button @click="activeTab = 'dashboard'" class="flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all" :class="activeTab === 'dashboard' ? 'text-blue-600 font-bold' : 'text-slate-400 font-medium'">
+            <i data-lucide="bar-chart-3" class="w-5 h-5"></i>
+            <span class="text-[10px]">班級統計</span>
+        </button>
+
+        <button @click="activeTab = 'history'" class="flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all" :class="activeTab === 'history' ? 'text-blue-600 font-bold' : 'text-slate-400 font-medium'">
+            <i data-lucide="history" class="w-5 h-5"></i>
+            <span class="text-[10px]">登記紀錄</span>
+        </button>
+
+        <button @click="activeTab = 'settings'" class="flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all" :class="activeTab === 'settings' ? 'text-blue-600 font-bold' : 'text-slate-400 font-medium'">
+            <i data-lucide="settings" class="w-5 h-5"></i>
+            <span class="text-[10px]">雲端設定</span>
+        </button>
+    </nav>
+
+    <!-- 學生管理彈窗 Modal -->
+    <div x-show="showStudentModal" x-transition.opacity class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-sm rounded-2xl p-4 shadow-2xl space-y-3 max-h-[80vh] flex flex-col" @click.away="showStudentModal = false">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-2">
+                <h3 class="font-bold text-slate-900 text-sm flex items-center gap-1">
+                    <i data-lucide="users" class="w-4 h-4 text-blue-600"></i> 學生名單管理
+                </h3>
+                <button @click="showStudentModal = false" class="text-slate-400 font-bold text-base">✕</button>
+            </div>
+
+            <!-- 新增學生表單 -->
+            <form @submit.prevent="addStudent()" class="flex gap-1.5 items-center bg-slate-50 p-2 rounded-xl border border-slate-200">
+                <input type="text" x-model="newStudent.classNum" placeholder="座號(01)" required class="w-20 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-medium focus:outline-none">
+                <input type="text" x-model="newStudent.name" placeholder="學生姓名" required class="flex-1 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-medium focus:outline-none">
+                <button type="submit" class="bg-blue-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg active:scale-95 transition-all">新增</button>
+            </form>
+
+            <!-- 學生清單 -->
+            <div class="flex-1 overflow-y-auto space-y-1.5 pr-1 no-scrollbar">
+                <template x-for="stu in students" :key="stu.id">
+                    <div class="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-100 text-xs">
+                        <span class="font-bold text-slate-800" x-text="stu.classNum + ' 號 - ' + stu.name"></span>
+                        <button @click="deleteStudent(stu.id)" class="text-red-500 font-semibold px-2 py-0.5 hover:bg-red-50 rounded-lg">刪除</button>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+
+    <!-- 圖片燈箱 Modal -->
+    <div x-show="viewImageModal" x-transition.opacity class="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4" @click="viewImageModal = null">
+        <div class="relative max-w-full max-h-[85vh]">
+            <img :src="viewImageModal" class="max-w-full max-h-[80vh] rounded-2xl object-contain shadow-2xl">
+            <button @click="viewImageModal = null" class="mt-4 bg-white/20 text-white font-bold px-4 py-2 rounded-full text-xs backdrop-blur-md">關閉預覽</button>
+        </div>
+    </div>
+
+    <script>
+        function appData() {
+            return {
+                activeTab: 'entry',
+                showStudentModal: false,
+                viewImageModal: null,
+                webhookUrl: localStorage.getItem('points_app_webhook') || '',
+
+                // 預設學生名單
+                students: JSON.parse(localStorage.getItem('points_app_students')) || [
+                    { id: 'S01', classNum: '01', name: '陳小明' },
+                    { id: 'S02', classNum: '02', name: '林雅婷' },
+                    { id: 'S03', classNum: '03', name: '張子豪' },
+                    { id: 'S04', classNum: '04', name: '黃心怡' },
+                    { id: 'S05', classNum: '05', name: '李威廉' }
+                ],
+
+                newStudent: {
+                    classNum: '',
+                    name: ''
+                },
+
+                // 表單狀態
+                form: {
+                    studentId: '',
+                    yearMonth: '',
+                    weekNum: '1',
+                    c6079: 0,
+                    c8089: 0,
+                    c90100: 0,
+                    weeklyBonus: false,
+                    proofImages: []
+                },
+
+                // 紀錄清單
+                records: JSON.parse(localStorage.getItem('points_app_records') || '[]'),
+
+                init() {
+                    // 自動帶入台北時間與週別
+                    this.setAutoTaipeiTime();
+
+                    if (this.students.length > 0) {
+                        this.form.studentId = this.students[0].id;
+                    }
+
+                    this.$nextTick(() => {
+                        lucide.createIcons();
+                    });
+                },
+
+                // 取得並設定台北標準時間 (UTC+8) 與當月週數
+                setAutoTaipeiTime() {
+                    const now = new Date();
+                    const options = { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' };
+                    const formatter = new Intl.DateTimeFormat('en-CA', options);
+                    const parts = formatter.formatToParts(now);
+                    const dateMap = {};
+                    parts.forEach(p => dateMap[p.type] = p.value);
+
+                    const yearMonth = `${dateMap.year}-${dateMap.month}`;
+                    const day = parseInt(dateMap.day, 10);
+                    const calculatedWeek = Math.min(5, Math.ceil(day / 7));
+
+                    this.form.yearMonth = yearMonth;
+                    this.form.weekNum = String(calculatedWeek);
+                },
+
+                get currentMonthText() {
+                    return this.form.yearMonth || new Date().toISOString().slice(0, 7);
+                },
+
+                get selectedStudentName() {
+                    const found = this.students.find(s => s.id === this.form.studentId);
+                    return found ? found.name : '';
+                },
+
+                // 判斷該學生本週是否已領取過 +5 點
+                get isBonusAlreadyClaimedThisWeek() {
+                    return this.records.some(r => 
+                        r.studentId === this.form.studentId &&
+                        r.yearMonth === this.form.yearMonth &&
+                        r.weekNum === this.form.weekNum &&
+                        r.weeklyBonus === true
+                    );
+                },
+
+                // 核心規則：自動計算點數 (3張60-79 +2點, 2張80-89 +2點, 1張90-100 +2點, 無違規 +5點)
+                get calculatedPoints() {
+                    const p6079 = Math.floor((parseInt(this.form.c6079) || 0) / 3) * 2;
+                    const p8089 = Math.floor((parseInt(this.form.c8089) || 0) / 2) * 2;
+                    const p90100 = (parseInt(this.form.c90100) || 0) * 2;
+                    
+                    const paperPts = p6079 + p8089 + p90100;
+                    const bonusPts = (this.form.weeklyBonus && !this.isBonusAlreadyClaimedThisWeek) ? 5 : 0;
+
+                    return {
+                        paperPts,
+                        bonusPts,
+                        totalPoints: paperPts + bonusPts
+                    };
+                },
+
+                // 處理相機拍照或圖片檔案
+                handleFileUpload(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        this.form.proofImages.push(e.target.result);
+                    };
+                    reader.readAsDataURL(file);
+                },
+
+                // 提交登記
+                async submitEntry() {
+                    const points = this.calculatedPoints.totalPoints;
+
+                    const newRecord = {
+                        id: 'REC-' + Date.now(),
+                        studentId: this.form.studentId,
+                        studentName: this.selectedStudentName,
+                        yearMonth: this.form.yearMonth,
+                        weekNum: this.form.weekNum,
+                        c6079: parseInt(this.form.c6079) || 0,
+                        c8089: parseInt(this.form.c8089) || 0,
+                        c90100: parseInt(this.form.c90100) || 0,
+                        weeklyBonus: this.form.weeklyBonus && !this.isBonusAlreadyClaimedThisWeek,
+                        totalPoints: points,
+                        proofImages: [...this.form.proofImages],
+                        createdAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+                    };
+
+                    this.records.unshift(newRecord);
+                    this.saveRecordsToLocal();
+
+                    // 若已綁定 Google Sheet，非同步發送 Webhook
+                    if (this.webhookUrl) {
+                        try {
+                            fetch(this.webhookUrl, {
+                                method: 'POST',
+                                mode: 'no-cors',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(newRecord)
+                            });
+                        } catch (err) {
+                            console.error("Cloud Sync Error:", err);
+                        }
+                    }
+
+                    // 重置考卷輸入
+                    this.form.c6079 = 0;
+                    this.form.c8089 = 0;
+                    this.form.c90100 = 0;
+                    this.form.weeklyBonus = false;
+                    this.form.proofImages = [];
+
+                    alert('成功新增登記紀錄！加分點數：' + points + ' 點');
+                    this.activeTab = 'dashboard';
+                },
+
+                // 學生管理功能
+                addStudent() {
+                    if (!this.newStudent.name.trim() || !this.newStudent.classNum.trim()) return;
+                    const newId = 'S' + Date.now().toString().slice(-4);
+                    this.students.push({
+                        id: newId,
+                        classNum: this.newStudent.classNum.padStart(2, '0'),
+                        name: this.newStudent.name.trim()
+                    });
+                    this.students.sort((a, b) => parseInt(a.classNum) - parseInt(b.classNum));
+                    this.saveStudentsToLocal();
+                    this.form.studentId = newId;
+                    this.newStudent.classNum = '';
+                    this.newStudent.name = '';
+                },
+
+                deleteStudent(id) {
+                    if (confirm('確定刪除該學生嗎？')) {
+                        this.students = this.students.filter(s => s.id !== id);
+                        this.saveStudentsToLocal();
+                    }
+                },
+
+                saveStudentsToLocal() {
+                    localStorage.setItem('points_app_students', JSON.stringify(this.students));
+                },
+
+                // 月度數據分析
+                get monthlyStats() {
+                    const currentYM = this.form.yearMonth;
+                    const filtered = this.records.filter(r => r.yearMonth === currentYM);
+
+                    let totalClassPoints = 0;
+                    let c6079 = 0, c8089 = 0, c90100 = 0;
+
+                    filtered.forEach(r => {
+                        totalClassPoints += r.totalPoints;
+                        c6079 += r.c6079;
+                        c8089 += r.c8089;
+                        c90100 += r.c90100;
+                    });
+
+                    const totalPapers = c6079 + c8089 + c90100;
+                    
+                    return {
+                        totalClassPoints,
+                        totalPapers,
+                        c6079, c8089, c90100,
+                        p6079Pct: totalPapers ? Math.round((c6079 / totalPapers) * 100) : 0,
+                        p8089Pct: totalPapers ? Math.round((c8089 / totalPapers) * 100) : 0,
+                        p90100Pct: totalPapers ? Math.round((c90100 / totalPapers) * 100) : 0
+                    };
+                },
+
+                // 學生積分排行榜
+                get sortedStudentRankings() {
+                    const currentYM = this.form.yearMonth;
+                    return this.students.map(stu => {
+                        const stuRecords = this.records.filter(r => r.studentId === stu.id && r.yearMonth === currentYM);
+                        const monthlyPoints = stuRecords.reduce((sum, r) => sum + r.totalPoints, 0);
+                        return {
+                            ...stu,
+                            monthlyPoints,
+                            submissionCount: stuRecords.length
+                        };
+                    }).sort((a, b) => b.monthlyPoints - a.monthlyPoints);
+                },
+
+                get filteredRecords() {
+                    return this.records;
+                },
+
+                getStudentName(id) {
+                    const found = this.students.find(s => s.id === id);
+                    return found ? (found.classNum + ' 號 - ' + found.name) : id;
+                },
+
+                deleteRecord(id) {
+                    if (confirm('確定刪除這筆登記嗎？')) {
+                        this.records = this.records.filter(r => r.id !== id);
+                        this.saveRecordsToLocal();
+                    }
+                },
+
+                saveRecordsToLocal() {
+                    localStorage.setItem('points_app_records', JSON.stringify(this.records));
+                },
+
+                saveSettings() {
+                    localStorage.setItem('points_app_webhook', this.webhookUrl);
+                    alert('Webhook 連結已儲存！');
+                },
+
+                copyScriptCode() {
+                    const code = `function doPost(e) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var data = JSON.parse(e.postData.contents);
+  sheet.appendRow([
+    data.createdAt,
+    data.studentName,
+    data.yearMonth,
+    "第" + data.weekNum + "週",
+    data.c6079,
+    data.c8089,
+    data.c90100,
+    data.weeklyBonus ? "是" : "否",
+    data.totalPoints
+  ]);
+  return ContentService.createTextOutput("Success");
+}`;
+                    document.addEventListener('copy', (e) => {
+                        e.clipboardData.setData('text/plain', code);
+                        e.preventDefault();
+                    }, { once: true });
+                    document.execCommand('copy');
+                    alert('Google Apps Script 程式碼已複製！');
+                },
+
+                exportCSV() {
+                    let csv = '\uFEFF時間(台北),學生姓名,月份,週別,60-79分,80-89分,90-100分,無違規,獲得總點數\n';
+                    this.records.forEach(r => {
+                        csv += `"${r.createdAt}","${r.studentName}","${r.yearMonth}","第${r.weekNum}週",${r.c6079},${r.c8089},${r.c90100},"${r.weeklyBonus ? '是' : '否'}",${r.totalPoints}\n`;
+                    });
+                    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = `學科點數紀錄_${this.form.yearMonth}.csv`;
+                    link.click();
+                },
+
+                clearAllData() {
+                    if (confirm('確定要清除所有紀錄嗎？此動作無法復原。')) {
+                        this.records = [];
+                        localStorage.removeItem('points_app_records');
+                    }
+                }
+            };
+        }
+    </script>
+</body>
+</html>
